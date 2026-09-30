@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TNC RIDE SHARE - Supabase</title>
+    
+    <!-- Modern Fonts (Outfit + Noto Sans Thai) -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Noto Sans Thai', 'Outfit', sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #0f172a;
+            touch-action: pan-x pan-y;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        .ui-layer {
+            position: relative;
+            z-index: 20;
+            pointer-events: none;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 0;
+        }
+
+        .interactive-ui {
+            pointer-events: auto;
+        }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .modal-enter {
+            animation: fadeInScale 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.92) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .glass-header {
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.12);
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.18);
+        }
+
+        .hidden { display: none !important; }
+
+        .spinner {
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #10b981;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .sync-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            display: inline-block; margin-right: 4px;
+        }
+        .sync-dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
+        .sync-dot.offline { background: #ef4444; }
+
+        .btn-gradient {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.35);
+        }
+        .btn-gradient:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            box-shadow: 0 6px 20px 0 rgba(16, 185, 129, 0.45);
+        }
+
+        .custom-pin {
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto modal-enter border border-white/60">
+            <div class="h-2 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600"></div>
+            <div class="p-6">
+                <!-- Login View -->
+                <div id="login-view">
+                    <div class="text-center mb-6">
+                        <div class="inline-flex items-center justify-center w-16 h-16 bg-emerald-50 rounded-2xl mb-3 shadow-inner ring-8 ring-emerald-50/50">
+                            <i data-lucide="car-taxi-front" class="w-8 h-8 text-emerald-600"></i>
+                        </div>
+                        <h2 class="text-2xl font-extrabold text-slate-800 tracking-tight">TNC RIDE SHARE</h2>
+                        <p class="text-xs text-slate-500 mt-1 font-medium">ระบบรถรับส่งพนักงาน บริษัท ไนเตรทไทย จำกัด</p>
+                    </div>
+
+                    <form id="login-form" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1.5">เบอร์โทรศัพท์ที่ลงทะเบียน (10 หลัก)</label>
+                            <div class="relative">
+                                <i data-lucide="phone" class="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5"></i>
+                                <input type="tel" id="login-phone" required autocomplete="tel" inputmode="numeric" pattern="0[0-9]{9}" maxlength="10"
+                                    class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition-all font-medium text-slate-800"
+                                    placeholder="0812345678">
+                            </div>
+                        </div>
+                        
+                        <div id="login-error" class="hidden bg-rose-50 text-rose-600 text-xs p-3 rounded-xl flex items-center gap-2 border border-rose-100 font-medium">
+                            <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+                            <span id="login-error-msg"></span>
+                        </div>
+
+                        <button type="submit" id="login-btn" class="w-full btn-gradient text-white font-bold py-3.5 rounded-2xl text-sm transition-all active:scale-[0.98] flex justify-center items-center gap-2 shadow-lg">
+                            เข้าสู่ระบบ <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                        </button>
+                    </form>
+                    
+                    <p class="text-center text-xs text-slate-500 mt-5">
+                        ยังไม่มีบัญชี? <button onclick="toggleAuthView('register')" class="text-emerald-600 font-bold hover:underline ml-1">ลงทะเบียนสมาชิกใหม่</button>
+                    </p>
+                </div>
+
+                <!-- Register View -->
+                <div id="register-view" class="hidden">
+                    <div class="flex items-center gap-3 mb-5">
+                        <button onclick="toggleAuthView('login')" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors">
+                            <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                        </button>
+                        <h2 class="text-xl font-extrabold text-slate-800">สมัครสมาชิกใหม่</h2>
+                    </div>
+
+                    <form id="register-form" class="space-y-3.5">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">ชื่อ-นามสกุล</label>
+                            <input type="text" id="reg-name" required maxlength="100"
+                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition-all"
+                                placeholder="Full name in English">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">เบอร์โทรศัพท์ (10 หลัก)</label>
+                            <input type="tel" id="reg-phone" required pattern="[0-9]{10}"
+                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition-all"
+                                placeholder="0812345678">
+                        </div>
+                        
+                        <div><label class="block text-xs font-semibold text-slate-700 mb-1" for="reg-email">อีเมลติดต่อ (ไม่ส่ง OTP)</label><input type="email" id="reg-email" required autocomplete="email" maxlength="254" placeholder="name@example.com" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm"></div>
+                        <div id="reg-error" class="hidden bg-rose-50 text-rose-600 text-xs p-3 rounded-xl flex items-center gap-2 border border-rose-100 font-medium">
+                            <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+                            <span id="reg-error-msg"></span>
+                        </div>
+
+                        <button type="submit" id="reg-btn" class="w-full btn-gradient text-white font-bold py-3.5 rounded-2xl text-sm transition-all active:scale-[0.98] flex justify-center items-center gap-2 shadow-lg">
+                            ยืนยันสมัครสมาชิก
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Modal -->
+    <div id="status-modal" class="hidden fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs p-6 text-center modal-enter border border-white/80">
+            <div class="relative w-20 h-20 mx-auto mb-4">
+                <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+                <div class="absolute inset-0 border-4 border-emerald-500 rounded-full border-t-transparent animate-spin"></div>
+                <div class="absolute inset-0 m-auto w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
+                    <i data-lucide="car" class="w-5 h-5 text-emerald-600"></i>
+                </div>
+            </div>
+            <h3 class="text-lg font-bold text-slate-800 mb-1">กำลังจัดคิวคนขับ...</h3>
+            <p class="text-xs text-slate-500 mb-6 font-medium">ระบบกำลังส่งคำขอไปยังคนขับ TNC ในพื้นที่</p>
+            <button onclick="cancelBooking()" class="w-full py-3 bg-rose-50 text-rose-600 hover:bg-rose-100 font-bold rounded-2xl text-xs transition-colors border border-rose-100">
+                ยกเลิกการจอง
+            </button>
+        </div>
+    </div>
+
+    <!-- Role Select Modal -->
+    <div id="role-select-modal" class="hidden fixed inset-0 z-[110] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 text-center modal-enter border border-white/80 space-y-4">
+            <div class="inline-flex items-center justify-center w-14 h-14 bg-emerald-100 text-emerald-700 rounded-2xl shadow-inner">
+                <i data-lucide="users-2" class="w-7 h-7"></i>
+            </div>
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">เลือกบทบาทการใช้งาน</h2>
+                <p class="text-xs text-slate-500 mt-1 font-medium">กรุณาเลือกรูปแบบการเดินทางของคุณในวันนี้</p>
+            </div>
+            <div class="space-y-3 pt-1 text-left">
+                <button onclick="selectUserRole('driver')" class="w-full p-4 bg-emerald-50 hover:bg-emerald-100/80 border-2 border-emerald-300 rounded-2xl transition-all group flex items-center gap-3">
+                    <div class="w-10 h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center font-bold text-lg shrink-0 group-hover:scale-105 transition-transform">🚗</div>
+                    <div>
+                        <div class="font-extrabold text-slate-800 text-sm">ผู้อาสา (ผู้ขับขี่)</div>
+                        <div class="text-[11px] text-slate-500">ขับรถยนต์มาเอง ต้องการเปิดรับเพื่อนร่วมงาน</div>
+                    </div>
+                </button>
+                <button onclick="selectUserRole('passenger')" class="w-full p-4 bg-blue-50 hover:bg-blue-100/80 border-2 border-blue-300 rounded-2xl transition-all group flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center font-bold text-lg shrink-0 group-hover:scale-105 transition-transform">🙋‍♂️</div>
+                    <div>
+                        <div class="font-extrabold text-slate-800 text-sm">ผู้อาศัย (ผู้ร่วมเดินทาง)</div>
+                        <div class="text-[11px] text-slate-500">ต้องการขอติดรถผู้อาสาไปทำงานหรือกลับบ้าน</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="history-modal" class="hidden fixed inset-0 z-[120] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden modal-enter border border-white/80 max-h-[85vh] flex flex-col">
+            <div class="p-4 px-6 bg-slate-900 text-white flex justify-between items-center shadow-md">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 font-bold">
+                        <i data-lucide="history" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-extrabold text-white">ประวัติรายการเดินทางย้อนหลัง (History)</h2>
+                        <p class="text-[10px] text-slate-400">รายการของผู้อาสาและผู้อาศัยทั้งหมดที่เสร็จสิ้นแล้ว</p>
+                    </div>
+                </div>
+                <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-white p-1.5 rounded-full hover:bg-white/10 transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="flex bg-slate-100 p-1.5 border-b border-slate-200 gap-1 px-4 text-xs font-bold">
+                <button onclick="filterHistoryRides('all')" id="h-tab-all" class="flex-1 py-2 text-center rounded-xl bg-white text-emerald-700 shadow-sm transition-all font-bold">ทั้งหมด</button>
+                <button onclick="filterHistoryRides('my')" id="h-tab-my" class="flex-1 py-2 text-center rounded-xl text-slate-600 hover:bg-white/60 transition-all font-medium">ของฉัน</button>
+                <button onclick="filterHistoryRides('driver')" id="h-tab-driver" class="flex-1 py-2 text-center rounded-xl text-slate-600 hover:bg-white/60 transition-all font-medium">เฉพาะผู้อาสา</button>
+                <button onclick="filterHistoryRides('passenger')" id="h-tab-passenger" class="flex-1 py-2 text-center rounded-xl text-slate-600 hover:bg-white/60 transition-all font-medium">เฉพาะผู้อาศัย</button>
+            </div>
+
+            <div id="history-rides-list" class="p-4 space-y-3 overflow-y-auto flex-1 max-h-[500px]"></div>
+        </div>
+    </div>
+
+    <!-- Notification Panel -->
+    <div id="notification-panel" class="hidden fixed top-14 sm:top-16 left-2 right-2 sm:left-auto sm:right-4 z-50 w-auto sm:w-85 max-h-[82vh] bg-white/98 backdrop-blur-2xl rounded-2xl shadow-2xl p-3.5 sm:p-4 border border-slate-100 flex flex-col justify-between transition-all">
+        <div class="overflow-y-auto flex-1 pr-0.5 max-h-[60vh] sm:max-h-[65vh]">
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                <h2 class="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <i data-lucide="bell" class="w-4 h-4 text-emerald-600"></i> รายการคำขอที่กำลังดำเนินการ
+                </h2>
+                <button onclick="toggleNotificationPanel()" class="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div id="ride-requests-list" class="space-y-2.5"></div>
+            <div id="no-requests-state" class="hidden">
+                <p class="text-xs text-slate-400 text-center py-6">ไม่มีรายการที่กำลังดำเนินการ</p>
+            </div>
+        </div>
+
+        <div class="pt-2.5 border-t border-slate-100 mt-2">
+            <button onclick="openHistoryModal()" class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors border border-slate-200/80 shadow-sm active:scale-95">
+                <i data-lucide="history" class="w-4 h-4 text-emerald-600"></i> ดูประวัติย้อนหลังทั้งหมด (History)
+            </button>
+        </div>
+    </div>
+
+    <!-- Floating Map Controls -->
+    <div class="fixed bottom-24 sm:bottom-32 right-3 sm:right-4 z-20 flex flex-col gap-2">
+        <button onclick="recenterMap()" class="w-10 h-10 sm:w-11 sm:h-11 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-white/80 flex items-center justify-center text-slate-700 hover:text-emerald-600 hover:bg-white active:scale-95 transition-all" title="กลับจุดศูนย์กลางสำนักงาน">
+            <i data-lucide="crosshair" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+        </button>
+    </div>
+
+    <!-- Fullscreen Map -->
+    <div id="map"></div>
+
+    <!-- Main UI Overlay -->
+    <div class="ui-layer">
+        <header class="interactive-ui glass-header w-full rounded-none rounded-b-xl sm:rounded-b-2xl px-2.5 sm:px-4 py-2 sm:py-3.5 flex justify-between items-center shadow-md border-b border-white/70">
+            <div class="flex items-center gap-2 sm:gap-3">
+                <div class="w-8 h-8 sm:w-9 sm:h-9 bg-gradient-to-tr from-emerald-600 to-teal-500 rounded-lg flex items-center justify-center text-white shadow-md shadow-emerald-600/20 shrink-0">
+                    <i data-lucide="car-taxi-front" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-slate-800 text-xs sm:text-base tracking-tight leading-none">TNC RIDE SHARE</h1>
+                    <span id="sync-indicator" class="inline-flex items-center text-[9px] sm:text-[10px] font-semibold text-slate-400 mt-0.5">
+                        <span class="sync-dot offline"></span>
+                        <span id="sync-text">Offline</span>
+                    </span>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-1 sm:gap-2">
+                <button onclick="switchRole()" id="role-pill-btn" class="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-100/90 text-emerald-800 hover:bg-emerald-200/90 rounded-full font-bold text-xs border border-emerald-200 shadow-sm transition-all">
+                    <span id="role-icon">🚗</span> <span id="role-text" class="hidden sm:inline">ผู้อาสา (ขับรถ)</span>
+                </button>
+
+                <button onclick="toggleNotificationPanel()" class="relative p-2 sm:p-2.5 bg-slate-100/80 hover:bg-slate-200/80 rounded-xl text-slate-700 transition-colors shrink-0">
+                    <i data-lucide="bell" class="w-4 h-4"></i>
+                    <span id="notification-badge" class="hidden absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center font-bold ring-2 ring-white">0</span>
+                </button>
+                
+                <div class="flex items-center gap-1.5 bg-slate-100/80 rounded-full py-0.5 pr-2.5 pl-1 border border-slate-200/60 max-w-[110px] sm:max-w-none">
+                    <div class="w-6 h-6 sm:w-7 sm:h-7 bg-emerald-200 text-emerald-800 rounded-full flex items-center justify-center font-bold text-[11px] sm:text-xs shrink-0" id="user-avatar">?</div>
+                    <span id="user-name-display" class="text-[11px] sm:text-xs font-semibold text-slate-700 max-w-[45px] sm:max-w-[85px] truncate">ผู้ใช้</span>
+                </div>
+                
+                <button onclick="logout()" class="p-2 sm:p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors shrink-0" title="ออกจากระบบ">
+                    <i data-lucide="log-out" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Bottom Sheet Panel -->
+        <div id="bottom-sheet" class="interactive-ui w-full sm:max-w-md sm:m-3 glass-panel rounded-t-xl sm:rounded-xl overflow-hidden transition-all duration-300 shadow-2xl border border-white/80">
+            <div onclick="toggleBottomPanel()" class="w-full flex flex-col items-center pt-3 pb-1.5 px-4 cursor-pointer select-none group hover:bg-black/5 transition-colors">
+                <div id="collapse-handle" class="w-12 h-1.5 bg-slate-300 group-hover:bg-emerald-500 rounded-full transition-colors"></div>
+                <div class="flex items-center justify-between w-full mt-2">
+                    <span class="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                        <i data-lucide="sliders-horizontal" class="w-4 h-4 text-emerald-600"></i> <span id="panel-title-text">แผงควบคุมการจองรถ</span>
+                    </span>
+                    <div class="flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
+                        <span id="collapse-label">ย่อหน้าต่าง</span>
+                        <i id="collapse-icon" data-lucide="chevron-down" class="w-4 h-4 transition-transform duration-300"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div id="panel-content" class="transition-all duration-300 ease-in-out overflow-hidden max-h-[520px] opacity-100">
+                <!-- Driver Panel View -->
+                <div id="driver-panel-view">
+                    <div class="flex w-full bg-slate-100/90 p-1.5 mt-1 rounded-xl mx-4 max-w-[calc(100%-32px)] border border-slate-200/60">
+                        <button id="tab-morning" onclick="selectShift('morning')" class="flex-1 py-2.5 text-center font-bold text-xs rounded-lg transition-all bg-white text-emerald-700 shadow-sm flex items-center justify-center gap-1.5">
+                            <i data-lucide="sunrise" class="w-4 h-4"></i> กะเช้า (ไปทำงาน)
+                        </button>
+                        <button id="tab-evening" onclick="selectShift('evening')" class="flex-1 py-2.5 text-center font-bold text-xs rounded-lg transition-all text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1.5">
+                            <i data-lucide="sunset" class="w-4 h-4"></i> กะเย็น (กลับบ้าน)
+                        </button>
+                    </div>
+
+                    <div class="p-4 pt-3 space-y-3">
+                        <div class="space-y-3 relative">
+                            <div class="flex items-center gap-3 relative">
+                                <div class="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0 z-10 shadow-sm">
+                                    <div class="w-3 h-3 bg-blue-600 rounded-full animate-pulse"></div>
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">จุดรับ (Pickup)</label>
+                                    <input type="text" id="pickup-input" readonly
+                                        class="w-full bg-slate-50/90 border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+                                        placeholder="เลือกจุดรับบนแผนที่">
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-3 relative">
+                                <div class="w-8 h-8 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0 z-10 shadow-sm">
+                                    <i data-lucide="map-pin" class="w-4 h-4 text-rose-600"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">จุดส่ง (Destination)</label>
+                                    <input type="text" id="dest-input" readonly
+                                        class="w-full bg-slate-50/90 border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+                                        placeholder="เลือกจุดส่งบนแผนที่">
+                                </div>
+                            </div>
+
+                            <div class="bg-slate-50/90 px-3.5 py-2.5 rounded-xl border border-slate-200/80 flex items-center justify-between">
+                                <div class="flex items-center gap-2 text-xs font-bold text-slate-700">
+                                    <i data-lucide="users" class="w-4 h-4 text-emerald-600"></i>
+                                    <span>รับผู้โดยสารได้กี่คน:</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" onclick="adjustSeats(-1)" class="w-8 h-8 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-sm">-</button>
+                                    <span id="seats-display" class="w-6 text-center font-extrabold text-sm text-emerald-600">1</span>
+                                    <button type="button" onclick="adjustSeats(1)" class="w-8 h-8 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-sm">+</button>
+                                    <span class="text-xs text-slate-500 font-semibold">คน</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="route-info" class="hidden flex gap-2.5 pt-1">
+                            <div class="flex-1 bg-blue-50/90 rounded-xl p-2.5 text-center border border-blue-100 shadow-sm">
+                                <p class="text-[10px] text-blue-600 font-bold uppercase tracking-wider">ระยะทาง</p>
+                                <p class="text-sm font-extrabold text-blue-900 mt-0.5"><span id="info-dist">0</span> <span class="text-xs">km</span></p>
+                            </div>
+                            <div class="flex-1 bg-emerald-50/90 rounded-xl p-2.5 text-center border border-emerald-100 shadow-sm">
+                                <p class="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">ลดคาร์บอน</p>
+                                <p class="text-sm font-extrabold text-emerald-900 mt-0.5"><span id="info-co2">0</span> <span class="text-xs">kg</span></p>
+                            </div>
+                        </div>
+
+                        <button id="book-btn" disabled onclick="handleBooking()" class="w-full btn-gradient disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none text-white font-extrabold py-3.5 rounded-xl shadow-xl text-xs sm:text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-2">
+                            <i data-lucide="car" class="w-4 h-4"></i> ประกาศเปิดรับผู้โดยสาร (ผู้อาสา)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Passenger Panel View -->
+                <div id="passenger-panel-view" class="hidden p-4 pt-2 space-y-3">
+                    <div class="flex items-center justify-between bg-blue-50/80 p-2.5 rounded-xl border border-blue-100">
+                        <div class="text-xs font-bold text-blue-800 flex items-center gap-1.5">
+                            <i data-lucide="search" class="w-4 h-4 text-blue-600"></i> เที่ยวรถผู้อาสาที่มีในระบบ
+                        </div>
+                        <div class="flex gap-1">
+                            <button onclick="filterPassengerRides('all')" id="p-filter-all" class="px-2 py-1 text-[10px] font-bold rounded-lg bg-blue-600 text-white shadow-sm transition-all">ทั้งหมด</button>
+                            <button onclick="filterPassengerRides('morning')" id="p-filter-morning" class="px-2 py-1 text-[10px] font-bold rounded-lg bg-white text-slate-600 hover:bg-slate-100 transition-all">กะเช้า</button>
+                            <button onclick="filterPassengerRides('evening')" id="p-filter-evening" class="px-2 py-1 text-[10px] font-bold rounded-lg bg-white text-slate-600 hover:bg-slate-100 transition-all">กะเย็น</button>
+                        </div>
+                    </div>
+
+                    <div id="passenger-driver-rides-list" class="space-y-2.5 max-h-[380px] overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed top-20 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-2 pointer-events-none w-[90%] max-w-xs"></div>
+
+    <script>
+        lucide.createIcons();
+        localStorage.removeItem('tnc_current_user');
+        localStorage.removeItem('tnc_users');
+
+        const API_URL = "/api/app";
+
+        const TNC_HQ = { lat: 12.6507, lng: 101.3198, name: 'Thai Nitrate Company (Office)' };
+        
+        let state = {
+            user: null,
+            userRole: localStorage.getItem('tnc_user_role') || 'driver',
+            passengerFilter: 'all',
+            ridesDb: [],
+            currentShift: 'morning',
+            pickup: null,
+            destination: null,
+            maxSeats: 1,
+            map: null,
+            markers: { pickup: null, dest: null, route: null },
+            bookingSimTimeout: null,
+            isOnline: false
+        };
+
+        function adjustSeats(delta) {
+            state.maxSeats = Math.max(1, Math.min(10, (state.maxSeats || 1) + delta));
+            const display = document.getElementById('seats-display');
+            if (display) display.innerText = state.maxSeats;
+        }
+
+        function selectUserRole(role) {
+            state.userRole = role;
+            localStorage.setItem('tnc_user_role', role);
+            document.getElementById('role-select-modal').classList.add('hidden');
+            updateRoleUI();
+            showToast(role === 'driver' ? 'โหมด: 🚗 ผู้อาสา (ผู้ขับขี่)' : 'โหมด: 🙋‍♂️ ผู้อาศัย (ผู้ร่วมเดินทาง)', 'info');
+        }
+
+        function switchRole() {
+            const newRole = state.userRole === 'driver' ? 'passenger' : 'driver';
+            selectUserRole(newRole);
+        }
+
+        function updateRoleUI() {
+            const pillBtn = document.getElementById('role-pill-btn');
+            const pillIcon = document.getElementById('role-icon');
+            const pillText = document.getElementById('role-text');
+            const driverView = document.getElementById('driver-panel-view');
+            const passengerView = document.getElementById('passenger-panel-view');
+            const titleText = document.getElementById('panel-title-text');
+
+            if (state.userRole === 'passenger') {
+                if (pillBtn) pillBtn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-blue-100/90 text-blue-800 hover:bg-blue-200/90 rounded-full font-bold text-xs border border-blue-200 shadow-sm transition-all";
+                if (pillIcon) pillIcon.textContent = "🙋‍♂️";
+                if (pillText) pillText.textContent = "ผู้อาศัย (ขอติดรถ)";
+                if (driverView) driverView.classList.add('hidden');
+                if (passengerView) passengerView.classList.remove('hidden');
+                if (titleText) titleText.textContent = "เลือกเที่ยวรถผู้อาสา";
+                renderPassengerDriverRides();
+                collapseBottomPanel();
+            } else {
+                if (pillBtn) pillBtn.className = "flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100/90 text-emerald-800 hover:bg-emerald-200/90 rounded-full font-bold text-xs border border-emerald-200 shadow-sm transition-all";
+                if (pillIcon) pillIcon.textContent = "🚗";
+                if (pillText) pillText.textContent = "ผู้อาสา (ขับรถ)";
+                if (passengerView) passengerView.classList.add('hidden');
+                if (driverView) driverView.classList.remove('hidden');
+                if (titleText) titleText.textContent = "แผงควบคุมการจองรถ";
+                expandBottomPanel();
+            }
+        }
+
+        function filterPassengerRides(shift) {
+            state.passengerFilter = shift;
+            ['all', 'morning', 'evening'].forEach(s => {
+                const btn = document.getElementById(`p-filter-${s}`);
+                if (btn) {
+                    btn.className = s === shift ? "px-2 py-1 text-[10px] font-bold rounded-lg bg-blue-600 text-white shadow-sm transition-all" : "px-2 py-1 text-[10px] font-bold rounded-lg bg-white text-slate-600 hover:bg-slate-100 transition-all";
+                }
+            });
+            renderPassengerDriverRides();
+        }
+
+        function renderPassengerDriverRides() {
+            const container = document.getElementById('passenger-driver-rides-list');
+            if (!container) return;
+            container.innerHTML = '';
+
+            let rides = state.ridesDb.filter(r => r.status !== 'Complete');
+            if (state.passengerFilter !== 'all') {
+                rides = rides.filter(r => r.shift === state.passengerFilter);
+            }
+
+            if (rides.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-xs text-slate-400 font-medium"><i data-lucide="car-off" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>ยังไม่มีรายการประกาศเที่ยวรถจากผู้อาสา</div>`;
+                lucide.createIcons({ root: container });
+                return;
+            }
+
+            rides.forEach(ride => {
+                const maxSeats = Number(ride.maxSeats || 1);
+                const passengers = Array.isArray(ride.passengers) ? ride.passengers : [];
+                const bookedSeats = Number(ride.bookedSeats || passengers.length || 0);
+                const availableSeats = Math.max(0, maxSeats - bookedSeats);
+                const isFull = availableSeats === 0 || ride.status === 'Full';
+                const currentPhone = state.user ? String(state.user.phone) : '';
+                const isJoined = passengers.some(p => String(p.phone) === currentPhone || (state.user && String(p.id) === String(state.user.id)));
+
+                const card = document.createElement('div');
+                card.className = "p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-2.5 text-xs relative overflow-hidden transition-all hover:border-blue-200";
+
+                let seatBadge = `<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">ว่าง ${availableSeats}/${maxSeats} ที่</span>`;
+                if (isFull) seatBadge = `<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-700 border border-rose-200">เต็มแล้ว (Full)</span>`;
+
+                let actionBtnHTML = '';
+                if (isJoined) {
+                    actionBtnHTML = `<button disabled class="w-full bg-emerald-50 text-emerald-700 font-bold py-2.5 rounded-xl border border-emerald-200 text-xs flex items-center justify-center gap-1">✓ ท่านลงชื่อขอติดรถในคันนี้แล้ว</button>`;
+                } else if (isFull) {
+                    actionBtnHTML = `<button disabled class="w-full bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl text-xs cursor-not-allowed border border-slate-200">❌ ที่นั่งเต็มแล้ว</button>`;
+                } else {
+                    actionBtnHTML = `<button onclick="requestJoinRide(${ride.id})" class="w-full btn-gradient text-white font-extrabold py-2.5 rounded-xl text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5"><i data-lucide="user-plus" class="w-4 h-4"></i> ขอร่วมเดินทางไปด้วย (${availableSeats} ที่ว่าง)</button>`;
+                }
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div class="font-extrabold text-slate-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span>🚗 ผู้อาสา: ${escapeHtml(ride.driver || ride.userName || 'เพื่อนร่วมงาน')}</div>
+                        ${seatBadge}
+                    </div>
+                    <div class="bg-slate-50 p-2.5 rounded-xl space-y-1 text-slate-700 text-[11px] font-medium border border-slate-100">
+                        <div class="flex items-center gap-1.5 text-slate-500 font-bold mb-1"><span>${ride.shift === 'morning' ? 'กะเช้า 🌅' : 'กะเย็น 🌇'}</span> • <span class="text-slate-400">${escapeHtml(ride.date || '')}</span></div>
+                        <p class="truncate">📍 จุดรับ: <span class="font-bold text-slate-800">${escapeHtml(ride.pickup?.name || '-')}</span></p>
+                        <p class="truncate">🏁 จุดส่ง: <span class="font-bold text-slate-800">${escapeHtml(ride.dest?.name || '-')}</span></p>
+                    </div>
+                    ${passengers.length > 0 ? `<div class="text-[10px] text-slate-500 font-medium">👥 ผู้ร่วมเดินทางแล้ว (${passengers.length} คน): <span class="font-bold text-slate-700">${escapeHtml(passengers.map(p => p.name).join(', '))}</span></div>` : ''}
+                    ${actionBtnHTML}
+                `;
+                container.appendChild(card);
+            });
+            lucide.createIcons({ root: container });
+        }
+
+        async function requestJoinRide(rideId) {
+            if (!state.user) return;
+            const result = await apiWrite('joinRide', { rideId, passenger: state.user });
+            if (!result.success) { showToast(result.message, 'error'); return; }
+            await fetchRidesFromDatabase();
+            renderRidesList();
+            showToast('ขอร่วมเดินทางเรียบร้อย', 'success');
+        }
+
+        function isConfigured() { return true; }
+
+        function updateSyncIndicator(online) {
+            state.isOnline = online;
+            const dot = document.querySelector('#sync-indicator .sync-dot');
+            const text = document.getElementById('sync-text');
+            if (online) { dot.className = 'sync-dot online'; text.textContent = 'Supabase ✓'; }
+            else { dot.className = 'sync-dot offline'; text.textContent = 'ยังไม่เชื่อมต่อ / กรุณาเข้าสู่ระบบ'; }
+        }
+
+        function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            let bgClass = type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-rose-600' : 'bg-slate-800';
+            toast.className = `${bgClass} text-white px-4 py-3 rounded-2xl shadow-2xl text-center font-semibold text-xs flex items-center justify-center gap-2 transition-all border border-white/20`;
+            toast.innerHTML = `<i data-lucide="${type === 'success' ? 'check-circle' : type === 'error' ? 'alert-triangle' : 'info'}" class="w-4 h-4 shrink-0"></i> <span>${escapeHtml(message)}</span>`;
+            container.appendChild(toast);
+            lucide.createIcons({ root: toast });
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        async function apiRequest(action, payload = {}) {
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, payload }), signal: AbortSignal.timeout(30000)
+                });
+                const result = await response.json();
+                updateSyncIndicator(response.ok && result.success);
+                if (response.status === 401 && state.user) { state.user = null; state.ridesDb = []; checkAuth(); }
+                return { ...result, message: result.message || result.error || 'บันทึกไม่สำเร็จ กรุณาลองใหม่' };
+            } catch (error) {
+                updateSyncIndicator(false);
+                return { success: false, message: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ กรุณาตรวจสอบข้อมูลก่อนลองใหม่' };
+            }
+        }
+        function apiGet({ action, ...payload }) { return apiRequest(action, payload); }
+        function apiWrite(action, payload) { return apiRequest(action, payload); }
+        async function fetchRidesFromDatabase() {
+            if (!state.user || state.fetching) return;
+            state.fetching = true;
+            try {
+                const result = await apiGet({ action: 'getAllRides' });
+                if (result.success && Array.isArray(result.data)) state.ridesDb = result.data;
+                updateNotificationBadge(); renderPassengerDriverRides(); renderRidesList();
+            } finally { state.fetching = false; }
+        }
+        async function createRide(rideData) {
+            const result = await apiWrite('createRide', rideData);
+            if (!result.success) { showToast(result.message, 'error'); return false; }
+            await fetchRidesFromDatabase(); return true;
+        }
+        async function updateRideStatusAPI(id, status) {
+            const result = await apiWrite('updateRideStatus', { id, status });
+            if (!result.success) { showToast(result.message, 'error'); return false; }
+            await fetchRidesFromDatabase(); return true;
+        }
+
+        function toggleBottomPanel() {
+            const content = document.getElementById('panel-content');
+            const icon = document.getElementById('collapse-icon');
+            const label = document.getElementById('collapse-label');
+            const handle = document.getElementById('collapse-handle');
+
+            if (content.classList.contains('max-h-0')) {
+                content.classList.remove('max-h-0', 'opacity-0');
+                content.classList.add('max-h-[520px]', 'opacity-100');
+                icon.style.transform = 'rotate(0deg)';
+                label.innerText = 'ย่อหน้าต่าง';
+                handle.className = 'w-12 h-1.5 bg-slate-300 group-hover:bg-emerald-500 rounded-full transition-colors';
+            } else {
+                content.classList.remove('max-h-[520px]', 'opacity-100');
+                content.classList.add('max-h-0', 'opacity-0');
+                icon.style.transform = 'rotate(180deg)';
+                label.innerText = 'ขยายหน้าต่าง';
+                handle.className = 'w-12 h-1.5 bg-emerald-500 rounded-full transition-colors';
+            }
+            setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 320);
+        }
+
+        function checkAuth() {
+            if (state.user) {
+                document.getElementById('auth-modal').classList.add('hidden');
+                document.getElementById('user-name-display').innerText = state.user.name;
+                document.getElementById('user-avatar').innerText = state.user.name.charAt(0);
+                if (!localStorage.getItem('tnc_user_role')) {
+                    document.getElementById('role-select-modal').classList.remove('hidden');
+                } else {
+                    updateRoleUI();
+                }
+                initMap();
+                fetchRidesFromDatabase();
+            } else {
+                document.getElementById('auth-modal').classList.remove('hidden');
+            }
+        }
+
+        function toggleAuthView(view) {
+            document.getElementById('login-error').classList.add('hidden');
+            document.getElementById('reg-error').classList.add('hidden');
+            if (view === 'register') {
+                document.getElementById('login-view').classList.add('hidden');
+                document.getElementById('register-view').classList.remove('hidden');
+            } else {
+                document.getElementById('register-view').classList.add('hidden');
+                document.getElementById('login-view').classList.remove('hidden');
+            }
+        }
+
+        const englishName = /^[A-Za-z][A-Za-z .'-]{1,99}$/;
+        const nameInput = document.getElementById('reg-name');
+        function validateName() {
+            nameInput.setCustomValidity(englishName.test(nameInput.value.trim()) && /[A-Za-z].*[A-Za-z]/.test(nameInput.value.trim()) ? '' : 'Please use English letters for your full name.');
+        }
+        nameInput.addEventListener('input', validateName);
+        nameInput.addEventListener('beforeinput', e => {
+            if (e.data && /[^A-Za-z .'-]/.test(e.data)) { e.preventDefault(); showToast('Please type your name in English.', 'error'); }
+        });
+        document.getElementById('reg-email').addEventListener('input', e => {
+            e.target.setCustomValidity(/^[\x21-\x7E]*$/.test(e.target.value) ? '' : 'Please use English characters in your email address.');
+        });
+        async function submitMember(action, payload, button, errorId) {
+            button.disabled=true; const label=button.textContent; button.textContent='Please wait...';
+            const result=await apiWrite(action,payload);
+            button.disabled=false; button.textContent=label;
+            if (!result.success) {
+                document.getElementById(errorId).textContent=result.message;
+                document.getElementById(errorId).parentElement.classList.remove('hidden'); return;
+            }
+            state.user=result.data; checkAuth();
+            showToast('Welcome, ' + result.data.name, 'success');
+        }
+        document.getElementById('login-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            await submitMember('login',{phone:document.getElementById('login-phone').value.trim()},document.getElementById('login-btn'),'login-error-msg');
+        });
+        document.getElementById('register-form').addEventListener('submit', async e => {
+            e.preventDefault(); validateName(); if (!nameInput.reportValidity()) return;
+            await submitMember('register',{name:nameInput.value.trim(),phone:document.getElementById('reg-phone').value.trim(),email:document.getElementById('reg-email').value.trim()},document.getElementById('reg-btn'),'reg-error-msg');
+        });
+        async function logout() {
+            const result=await apiWrite('logout',{});
+            if (!result.success) {showToast(result.message,'error');return;}
+            state.user=null; state.ridesDb=[]; checkAuth();
+        }
+        window.addEventListener('load',async () => {
+            const result=await apiWrite('me',{});
+            if (result.success) {state.user=result.data;checkAuth();}
+        });
+
+        const getLeafletIcon = (color) => {
+            const svgIcon = `<svg viewBox="0 0 24 40" width="30" height="46" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.37 0 0 5.37 0 12c0 8 12 28 12 28s12-20 12-28c0-6.63-5.37-12-12-12zm0 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4z" fill="${color}" stroke="#ffffff" stroke-width="2.5"/></svg>`;
+            return L.divIcon({ className: "custom-pin bg-transparent border-0", html: svgIcon, iconSize: [30, 46], iconAnchor: [15, 46] });
+        };
+
+        function initMap() {
+            if (state.map) return;
+            state.map = L.map('map', { zoomControl: false, attributionControl: false }).setView([TNC_HQ.lat, TNC_HQ.lng], 13);
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(state.map);
+            state.map.on('click', function(e) { setMapLocation(e.latlng.lat, e.latlng.lng); });
+            selectShift('morning');
+        }
+
+        function recenterMap() {
+            if (state.map) state.map.setView([TNC_HQ.lat, TNC_HQ.lng], 13);
+        }
+
+        function selectShift(shift) {
+            state.currentShift = shift;
+            const mTab = document.getElementById('tab-morning');
+            const eTab = document.getElementById('tab-evening');
+            if (shift === 'morning') {
+                mTab.className = "flex-1 py-2.5 text-center font-bold text-xs rounded-xl transition-all bg-white text-emerald-700 shadow-sm flex items-center justify-center gap-1.5 border border-slate-200/50";
+                eTab.className = "flex-1 py-2.5 text-center font-bold text-xs rounded-2xl transition-all text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1.5";
+                state.pickup = null;
+                state.destination = { ...TNC_HQ };
+            } else {
+                eTab.className = "flex-1 py-2.5 text-center font-bold text-xs rounded-xl transition-all bg-white text-emerald-700 shadow-sm flex items-center justify-center gap-1.5 border border-slate-200/50";
+                mTab.className = "flex-1 py-2.5 text-center font-bold text-xs rounded-2xl transition-all text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1.5";
+                state.pickup = { ...TNC_HQ };
+                state.destination = null;
+            }
+            if (state.markers.route && state.map) state.map.removeLayer(state.markers.route);
+            updateUI();
+            drawMarkers();
+        }
+
+        async function setMapLocation(lat, lng) {
+            let locName = `Coordinates (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=en`);
+                const data = await res.json();
+                if (data && data.address) {
+                    locName = data.address.village || data.address.suburb || data.address.town || data.address.road || data.display_name.split(',')[0];
+                }
+            } catch (e) {}
+
+            const locationData = { lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)), name: /^[\x20-\x7E]{1,500}$/.test(locName) ? locName : 'Coordinates (' + lat.toFixed(4) + ', ' + lng.toFixed(4) + ')' };
+            if (state.currentShift === 'morning') state.pickup = locationData;
+            else state.destination = locationData;
+
+            drawMarkers();
+            updateUI();
+        }
+
+        function drawMarkers() {
+            if (!state.map) return;
+            if (state.markers.pickup) state.map.removeLayer(state.markers.pickup);
+            if (state.markers.dest) state.map.removeLayer(state.markers.dest);
+            if (state.markers.route) state.map.removeLayer(state.markers.route);
+
+            if (state.pickup) state.markers.pickup = L.marker([state.pickup.lat, state.pickup.lng], { icon: getLeafletIcon('#2563eb') }).addTo(state.map);
+            if (state.destination) state.markers.dest = L.marker([state.destination.lat, state.destination.lng], { icon: getLeafletIcon('#e11d48') }).addTo(state.map);
+
+            if (state.pickup && state.destination) {
+                state.markers.route = L.polyline([[state.pickup.lat, state.pickup.lng], [state.destination.lat, state.destination.lng]], { color: '#059669', weight: 4, opacity: 0.85, dashArray: '8, 8' }).addTo(state.map);
+                state.map.fitBounds(state.markers.route.getBounds(), { padding: [60, 60], maxZoom: 15 });
+                const dist = L.latLng(state.pickup.lat, state.pickup.lng).distanceTo(L.latLng(state.destination.lat, state.destination.lng)) / 1000;
+                document.getElementById('info-dist').innerText = dist.toFixed(1);
+                document.getElementById('info-co2').innerText = (dist * 0.21).toFixed(2);
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('pickup-input').value = state.pickup ? state.pickup.name : '';
+            document.getElementById('dest-input').value = state.destination ? state.destination.name : '';
+            const bookBtn = document.getElementById('book-btn');
+            const routeInfo = document.getElementById('route-info');
+            if (state.pickup && state.destination) {
+                bookBtn.disabled = false;
+                routeInfo.classList.remove('hidden');
+            } else {
+                bookBtn.disabled = true;
+                routeInfo.classList.add('hidden');
+            }
+        }
+
+        function handleBooking() {
+            document.getElementById('status-modal').classList.remove('hidden');
+            state.bookingSimTimeout = setTimeout(async () => {
+                document.getElementById('status-modal').classList.add('hidden');
+                const driver = state.user.name;
+                const dist = L.latLng(state.pickup.lat, state.pickup.lng).distanceTo(L.latLng(state.destination.lat, state.destination.lng)) / 1000;
+
+                const newRide = {
+                    id: Date.now(),
+                    userId: state.user.id,
+                    userName: state.user.name,
+                    userPhone: state.user.phone,
+                    shift: state.currentShift,
+                    date: new Date().toLocaleString('th-TH'),
+                    driver: driver,
+                    pickup: state.pickup,
+                    dest: state.destination,
+                    status: 'Pending',
+                    distance: dist.toFixed(1),
+                    co2: (dist * 0.21).toFixed(2),
+                    maxSeats: state.maxSeats || 1
+                };
+
+                if (!await createRide(newRide)) return;
+                showToast(`ประกาศเที่ยวรถสำเร็จ!`, 'success');
+                setTimeout(() => { selectShift(state.currentShift); recenterMap(); }, 2000);
+            }, 2500);
+        }
+
+        function cancelBooking() {
+            clearTimeout(state.bookingSimTimeout);
+            document.getElementById('status-modal').classList.add('hidden');
+            showToast('ยกเลิกแล้ว', 'error');
+        }
+
+        function collapseBottomPanel() {
+            const content = document.getElementById('panel-content');
+            if (content && !content.classList.contains('max-h-0')) {
+                content.classList.remove('max-h-[520px]', 'opacity-100');
+                content.classList.add('max-h-0', 'opacity-0');
+            }
+        }
+
+        function expandBottomPanel() {
+            const content = document.getElementById('panel-content');
+            if (content && content.classList.contains('max-h-0')) {
+                content.classList.remove('max-h-0', 'opacity-0');
+                content.classList.add('max-h-[520px]', 'opacity-100');
+            }
+        }
+
+        function toggleNotificationPanel() {
+            document.getElementById('notification-panel').classList.toggle('hidden');
+            fetchRidesFromDatabase().then(() => renderRidesList());
+        }
+
+        function renderRidesList() {
+            const listContainer = document.getElementById('ride-requests-list');
+            const noState = document.getElementById('no-requests-state');
+            if (!listContainer) return;
+            listContainer.innerHTML = '';
+
+            const activeRides = state.ridesDb.filter(r => r.status !== 'Complete');
+            if (activeRides.length === 0) { if (noState) noState.classList.remove('hidden'); return; }
+            if (noState) noState.classList.add('hidden');
+
+            activeRides.forEach(ride => {
+                const item = document.createElement('div');
+                item.className = "p-3.5 rounded-2xl border text-xs space-y-2.5 transition-all bg-white border-emerald-100 shadow-md";
+                
+                const isDriver = state.user && (String(ride.userId) === String(state.user.id) || ride.driver === state.user.name || ride.userName === state.user.name);
+
+                let actionHTML = '';
+                if (isDriver) {
+                    if (ride.status === 'Pending' || ride.status === 'Full') {
+                        actionHTML = `<button onclick="updateRideStatus(${ride.id}, 'In-Progress')" class="w-full bg-blue-600 text-white py-2 rounded-xl font-bold">เริ่มเดินทาง</button>`;
+                    } else if (ride.status === 'In-Progress') {
+                        actionHTML = `<button onclick="updateRideStatus(${ride.id}, 'Complete')" class="w-full btn-gradient text-white py-2 rounded-xl font-bold">✓ เสร็จสิ้นภารกิจ</button>`;
+                    }
+                } else {
+                    actionHTML = `<div class="w-full text-center text-slate-500 py-1 bg-slate-100 rounded-xl">สถานะ: ${escapeHtml(ride.status)}</div>`;
+                }
+
+                item.innerHTML = `
+                    <div class="flex justify-between items-center font-bold">
+                        <span>${escapeHtml(ride.userName || '-')} (${ride.shift === 'morning' ? 'กะเช้า' : 'กะเย็น'})</span>
+                        <span class="px-2.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">${escapeHtml(ride.status)}</span>
+                    </div>
+                    <div class="text-slate-600 text-[11px]">
+                        <p class="truncate">📍 รับ: ${escapeHtml(ride.pickup?.name || '-')}</p>
+                        <p class="truncate">🏁 ส่ง: ${escapeHtml(ride.dest?.name || '-')}</p>
+                    </div>
+                    ${actionHTML}
+                `;
+                listContainer.appendChild(item);
+            });
+            lucide.createIcons({ root: listContainer });
+        }
+
+        async function updateRideStatus(id, newStatus) {
+            if (!await updateRideStatusAPI(id, newStatus)) return;
+            renderRidesList();
+            renderPassengerDriverRides();
+            updateNotificationBadge();
+            showToast('อัปเดตสถานะสำเร็จ', 'success');
+        }
+
+        function updateNotificationBadge() {
+            const badge = document.getElementById('notification-badge');
+            const count = state.ridesDb.filter(r => r.status !== 'Complete').length;
+            if (count > 0) { badge.innerText = count; badge.classList.remove('hidden'); }
+            else { badge.classList.add('hidden'); }
+        }
+
+        let historyFilter = 'all';
+        function openHistoryModal() {
+            document.getElementById('history-modal').classList.remove('hidden');
+            renderHistoryRides();
+        }
+        function closeHistoryModal() {
+            document.getElementById('history-modal').classList.add('hidden');
+        }
+        function filterHistoryRides(tab) {
+            historyFilter = tab;
+            ['all', 'my', 'driver', 'passenger'].forEach(t => {
+                document.getElementById(`h-tab-${t}`).className = t === tab ? "flex-1 py-2 text-center rounded-xl bg-white text-emerald-700 shadow-sm font-bold" : "flex-1 py-2 text-center rounded-xl text-slate-600 font-medium";
+            });
+            renderHistoryRides();
+        }
+        function renderHistoryRides() {
+            const container = document.getElementById('history-rides-list');
+            if (!container) return;
+            container.innerHTML = '';
+            const completed = state.ridesDb.filter(r => r.status === 'Complete');
+
+            if (completed.length === 0) {
+                container.innerHTML = `<div class="text-center py-12 text-xs text-slate-400">ยังไม่มีประวัติการเดินทางที่เสร็จสิ้น</div>`;
+                return;
+            }
+
+            completed.forEach(ride => {
+                const item = document.createElement('div');
+                item.className = "p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs";
+                item.innerHTML = `
+                    <div class="flex justify-between font-bold">
+                        <span>🚗 ผู้อาสา: ${escapeHtml(ride.driver || ride.userName)}</span>
+                        <span class="text-emerald-700">✓ สำเร็จ</span>
+                    </div>
+                    <p class="truncate">📍 ${escapeHtml(ride.pickup?.name || '-')} ➔ 🏁 ${escapeHtml(ride.dest?.name || '-')}</p>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        window.onload = () => {
+            checkAuth();
+            setInterval(fetchRidesFromDatabase, 15000);
+        };
+    </script>
+</body>
+</html>
