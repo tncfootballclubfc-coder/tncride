@@ -1,0 +1,4 @@
+supabase/
+test/
+README.md
+.env.example
