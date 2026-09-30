@@ -2,6 +2,7 @@
 const actions = new Set(['requestOtp','verifyOtp','me','logout','getAllRides','createRide','joinRide','updateRideStatus']);
 const cookie = (token, age) => `tnc_sb=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${age}`;
 export default async function handler(req,res) {
+  let stage='request';
   res.setHeader('Cache-Control','no-store');
   if(req.method!=='POST') {res.setHeader('Allow','POST');return res.status(405).json({success:false,message:'Method not allowed'});}
   try {
@@ -14,6 +15,7 @@ export default async function handler(req,res) {
     const {action,payload:p={}}=body || {};
     if(!actions.has(action)) return res.status(400).json({success:false,message:'Unknown action'});
     const call=async(path,data,token,method='POST')=>{
+      stage=path.startsWith('/auth/v1/otp')?'send_otp':path.startsWith('/auth/v1/verify')?'verify_otp':path.startsWith('/rest/')?'database':'session';
       const headers={apikey:key,'Content-Type':'application/json'};
       if(token) headers.Authorization=`Bearer ${token}`;
       const response=await fetch(url+path,{method,headers,...(method==='GET'?{}:{body:JSON.stringify(data)}),signal:AbortSignal.timeout(20000)});
@@ -52,10 +54,25 @@ export default async function handler(req,res) {
     const result=await rpc(fn,data,token);
     return res.status(200).json({success:true,data:result});
   } catch(error){
+    const code=typeof error.code==='string' && /^[a-zA-Z0-9_]{1,80}$/.test(error.code)?error.code:'unknown';
+    // Do not log request bodies, email addresses, keys, tokens, or raw provider messages.
+    console.error('TNC_SUPABASE_ERROR',JSON.stringify({stage,status:Number(error.status)||0,code}));
     const messages={otp_expired:'OTP ไม่ถูกต้องหรือหมดอายุ กรุณาขอรหัสใหม่',over_email_send_rate_limit:'ส่งอีเมลเกินโควตา กรุณารอหรือตรวจ SMTP ใน Supabase',email_address_not_authorized:'อีเมลนี้ยังรับจาก SMTP ทดสอบไม่ได้ กรุณาตั้ง Custom SMTP',signup_disabled:'ไม่พบบัญชีหรือระบบปิดสมัครสมาชิก',PGRST202:'กรุณารันไฟล์ schema.sql ใน Supabase SQL Editor ก่อน', '23505':'เบอร์โทรถูกใช้งานแล้ว กรุณาติดต่อผู้ดูแล'};
     const known=error.code==='P0001';
     const status=error.status===401?401:error.status===429?429:400;
-    const message=messages[error.code] || (known?error.message:status===401?'Session หมดอายุ กรุณารับ OTP ใหม่':'เชื่อมต่อ Supabase ไม่สำเร็จ กรุณาตรวจ Project URL, API key, SQL และ SMTP');
-    return res.status(status).json({success:false,message});
+    Object.assign(messages,{
+      over_request_rate_limit:'ขอรหัสถี่เกินไป กรุณารอสักครู่ก่อนลองใหม่',
+      email_address_invalid:'Supabase ไม่ยอมรับรูปแบบอีเมลนี้ กรุณาตรวจอีเมล',
+      email_provider_disabled:'กรุณาเปิด Email provider ใน Supabase Authentication',
+      captcha_failed:'การตรวจ CAPTCHA ไม่ผ่าน โค้ดรุ่นนี้ยังไม่ได้เชื่อม CAPTCHA widget',
+      hook_timeout:'บริการส่งอีเมลตอบกลับช้า กรุณาตรวจ Auth Hook',
+      hook_timeout_after_retry:'บริการส่งอีเมลตอบกลับช้า กรุณาตรวจ Auth Hook'
+    });
+    let message=messages[code] || (known?error.message:status===401?'Session หมดอายุ กรุณารับ OTP ใหม่':'เชื่อมต่อ Supabase ไม่สำเร็จ กรุณาดู Authentication Logs');
+    if(stage==='send_otp' && !messages[code]) {
+      message=error.status===401||error.status===403?'Supabase ปฏิเสธคำขอ กรุณาตรวจว่า Project URL และ Publishable key มาจากโปรเจกต์เดียวกัน':error.status>=500?'Supabase ส่ง OTP ไม่สำเร็จ กรุณาดู Authentication Logs เพื่อตรวจ SMTP หรือ Auth Hook':'ขอ OTP ไม่สำเร็จ กรุณาดู Authentication Logs';
+    }
+    if(error.name==='TimeoutError'||error.name==='AbortError'||error.message==='fetch failed') message='ติดต่อ Supabase ไม่ได้หรือหมดเวลา กรุณาตรวจ Project URL และสถานะโปรเจกต์';
+    return res.status(status).json({success:false,message:message+` [${stage}/${Number(error.status)||0}/${code}]`});
   }
 }
