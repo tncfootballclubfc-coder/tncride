@@ -1080,6 +1080,12 @@
             });
             renderHistoryRides();
         }
+        function historyCarbon(ride) {
+            const valid = value => value !== null && value !== undefined && String(value).trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
+            const distance = valid(ride.distance) ? Number(ride.distance).toFixed(1) + ' กม.' : 'ไม่มีข้อมูล';
+            const carbon = valid(ride.co2) ? Number(ride.co2).toFixed(2) + ' kg CO₂' : 'ไม่มีข้อมูล';
+            return `<div class="rounded-xl border border-emerald-100 bg-emerald-50 p-3 space-y-1"><p>ระยะทางโดยประมาณ: <strong>${distance}</strong></p><p class="text-emerald-800">ค่าประมาณการลด CO₂ ที่บันทึกไว้: <strong>${carbon}</strong></p><p class="text-[10px] text-slate-500">สูตรเดิม: ระยะเส้นตรง × 0.21 kg CO₂/กม. ยังไม่รวมจำนวนผู้ร่วมเดินทาง และไม่ใช่คาร์บอนเครดิตที่รับรอง</p></div>`;
+        }
         function renderHistoryRides() {
             const container = document.getElementById('history-rides-list');
             if (!container) return;
@@ -1101,6 +1107,7 @@
                     </div>
                     <p class="truncate">📍 ${escapeHtml(ride.pickup?.name || '-')} ➔ 🏁 ${escapeHtml(ride.dest?.name || '-')}</p>
                     ${passengerSummary(ride)}
+                    ${historyCarbon(ride)}
                 `;
                 container.appendChild(item);
             });
