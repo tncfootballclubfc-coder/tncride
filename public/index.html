@@ -555,9 +555,16 @@
             const joined = !!state.user && passengers.some(p => String(p.id) === String(state.user.id));
             return {passengers, capacity, booked, available, owner, joined};
         }
+        function rideSeatBadge(ride) {
+            const p = rideParticipation(ride);
+            const full = p.available === 0 || ride.status === 'Full';
+            const text = full ? 'เต็มแล้ว' : `ว่าง ${p.available} ที่`;
+            const color = full ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-800';
+            return `<span class="px-2.5 py-1 rounded-full text-xs font-bold ${color}">${text}</span>`;
+        }
         function passengerSummary(ride) {
             const p = rideParticipation(ride);
-            return `<div class="text-xs text-slate-600 space-y-1"><p>ที่นั่งผู้โดยสาร: ${p.booked}/${p.capacity} คน • ว่าง ${p.available} ที่</p><p class="break-words">👥 ผู้ร่วมเดินทาง: ${p.passengers.length ? p.passengers.map(person => escapeHtml(person.name)).join(', ') : 'ยังไม่มีผู้ร่วมเดินทาง'}</p></div>`;
+            return `<div class="text-xs text-slate-600 space-y-2 bg-slate-50 rounded-xl p-2.5"><div class="flex justify-between items-center gap-2"><span>ผู้โดยสาร ${p.booked}/${p.capacity} คน</span>${rideSeatBadge(ride)}</div><p class="font-semibold">ผู้ร่วมเดินทาง</p>${p.passengers.length ? `<ul class="space-y-1">${p.passengers.map(person => `<li class="break-words">• ${escapeHtml(person.name)}</li>`).join('')}</ul>` : '<p>ยังไม่มีผู้ร่วมเดินทาง</p>'}</div>`;
         }
         function joinRideButton(ride) {
             const p = rideParticipation(ride);
@@ -1029,7 +1036,7 @@
                 item.innerHTML = `
                     <div class="flex justify-between items-center font-bold">
                         <span>${escapeHtml(ride.userName || '-')} (${ride.shift === 'morning' ? 'กะเช้า' : 'กะเย็น'})</span>
-                        <span class="px-2.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">${escapeHtml(ride.status)}</span>
+                        <span class="px-2.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">${escapeHtml(({Pending:'เปิดรับ',Full:'เต็มแล้ว','In-Progress':'กำลังเดินทาง',Complete:'เสร็จสิ้น'})[ride.status] || ride.status)}</span>
                     </div>
                     <div class="text-slate-600 text-[11px]">
                         <p class="truncate">📍 รับ: ${escapeHtml(ride.pickup?.name || '-')}</p>
