@@ -1,16 +1,5 @@
--- Existing Supabase edition: run this migration ONCE. Keeps IDs/trips/passengers.
+-- Run in Supabase SQL Editor. Preserves all existing members and rides.
 begin;
-alter table public.tnc_profiles alter column auth_id drop not null;
--- New members are database records only, not Supabase Auth identities.
-create or replace function public.tnc_profile() returns jsonb language plpgsql security definer set search_path='' as $$
-declare m public.tnc_profiles; actor bigint;
-begin
- actor := nullif(current_setting('tnc.member_id',true),'')::bigint;
- select * into m from public.tnc_profiles where id=actor;
- if m.id is null then raise exception 'Member not found. Please sign in again.'; end if;
- return jsonb_build_object('id',m.id,'name',m.name,'phone',m.phone,'email',m.email);
-end $$;
-
 create or replace function public.tnc_phone(p_action text,p_payload jsonb default '{}'::jsonb,p_actor bigint default null)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare m public.tnc_profiles; n text; ph text; em text; point jsonb;
@@ -44,8 +33,4 @@ begin
   else raise exception 'Unknown action';
  end case;
 end $$;
--- All actions must pass through Vercel. Never grant these functions to public clients.
-revoke all on function public.tnc_profile(),public.tnc_rides(),public.tnc_create_ride(jsonb),public.tnc_join_ride(bigint),public.tnc_status(bigint,text) from public,anon,authenticated;
-revoke all on function public.tnc_phone(text,jsonb,bigint) from public,anon,authenticated;
-grant execute on function public.tnc_phone(text,jsonb,bigint) to service_role;
 commit;

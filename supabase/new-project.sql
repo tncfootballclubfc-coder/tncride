@@ -144,7 +144,7 @@ begin
   when 'getAllRides' then return public.tnc_rides();
   when 'createRide' then
    foreach point in array array[p_payload->'pickup',p_payload->'dest'] loop
-    if point->>'name' is null or point->>'name' !~ '^[ -~]{1,500}$' then raise exception 'Location names must use English characters.'; end if;
+    if point->>'name' is null or char_length(point->>'name') not between 1 and 500 or (point->>'name') collate "C" !~ '^[ -~]+$' then raise exception 'Location names must use English characters.'; end if;
    end loop;
    return to_jsonb(public.tnc_create_ride(p_payload));
   when 'joinRide' then return to_jsonb(public.tnc_join_ride((p_payload->>'rideId')::bigint));

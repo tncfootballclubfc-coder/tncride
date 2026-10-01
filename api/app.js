@@ -41,7 +41,7 @@ export default async function handler(req,res){
   const result=await upstream.json().catch(()=>({}));
   if(!upstream.ok){
    const code=String(result.code||'unknown').replace(/[^a-zA-Z0-9_]/g,'').slice(0,40);
-   const messages={PGRST202:'Run the phone-login SQL migration in Supabase first.',23505:'This phone number is already registered. Please sign in.',42501:'Check the server-only Supabase service key and SQL migration.'};
+   const messages={'2201B':'Run supabase/fix-location-validation.sql in Supabase SQL Editor, then try again.',PGRST202:'Run the phone-login SQL migration in Supabase first.',23505:'This phone number is already registered. Please sign in.',42501:'Check the server-only Supabase service key and SQL migration.'};
    return res.status(400).json({success:false,message:messages[code]||(code==='P0001'?result.message:`Database request failed (${upstream.status}/${code}). Check Vercel settings.`)});
   }
   if(action==='register'||action==='login'){

@@ -373,6 +373,18 @@
                     </div>
 
                     <div class="p-4 pt-3 space-y-3">
+                        <div class="space-y-2">
+                            <label for="place-query" class="block text-xs font-semibold">ค้นหาจุดรับ / จุดส่ง (พิมพ์ภาษาอังกฤษ)</label>
+                            <div class="flex gap-2">
+                                <select id="place-target" aria-label="จุดที่ต้องการเลือก" class="border rounded-lg text-xs"><option value="pickup">จุดรับ</option><option value="dest">จุดส่ง</option></select>
+                                <input id="place-query" maxlength="150" placeholder="e.g. Bang Na, Bangkok" class="min-w-0 flex-1 border rounded-lg px-2 py-2 text-xs">
+                                <button type="button" id="place-search" class="bg-emerald-600 text-white rounded-lg px-3 text-xs">ค้นหา</button>
+                            </div>
+                            <p id="place-status" role="status" class="text-xs text-slate-500"></p>
+                            <div id="place-results" class="space-y-1 max-h-48 overflow-y-auto"></div>
+                            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" class="text-[10px] text-slate-500">Search © OpenStreetMap contributors</a>
+                        </div>
+
                         <div class="space-y-3 relative">
                             <div class="flex items-center gap-3 relative">
                                 <div class="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0 z-10 shadow-sm">
@@ -764,11 +776,72 @@
             selectShift('morning');
         }
 
+        let placeSearchVersion = 0;
+        let lastPlaceSearch = 0;
+        const placeCache = new Map();
+        function clearPlaceSearch() {
+            placeSearchVersion++;
+            document.getElementById('place-results').replaceChildren();
+            document.getElementById('place-status').textContent = '';
+        }
+        document.getElementById('place-query').addEventListener('input', clearPlaceSearch);
+        document.getElementById('place-target').addEventListener('change', clearPlaceSearch);
+        document.getElementById('place-query').addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); searchPlace(); }
+        });
+        document.getElementById('place-search').addEventListener('click', searchPlace);
+        async function searchPlace() {
+            const query = document.getElementById('place-query').value.trim();
+            clearPlaceSearch();
+            const version = placeSearchVersion;
+            const target = document.getElementById('place-target').value;
+            const status = document.getElementById('place-status');
+            if (!/^[\x20-\x7E]{2,150}$/.test(query)) {
+                status.textContent = 'กรุณาพิมพ์ชื่อสถานที่เป็นภาษาอังกฤษอย่างน้อย 2 ตัวอักษร'; return;
+            }
+            if (Date.now() - lastPlaceSearch < 1100) { status.textContent = 'กรุณารอสักครู่แล้วค้นหาอีกครั้ง'; return; }
+            lastPlaceSearch = Date.now();
+            status.textContent = 'กำลังค้นหา…';
+            try {
+                let places = placeCache.get(query);
+                if (!places) {
+                    const params = new URLSearchParams({q:query, format:'jsonv2', limit:'5', countrycodes:'th', 'accept-language':'en'});
+                    const response = await fetch('https://nominatim.openstreetmap.org/search?' + params, {signal:AbortSignal.timeout(12000)});
+                    if (!response.ok) throw new Error('Search unavailable');
+                    places = await response.json();
+                    if (!Array.isArray(places)) throw new Error('Invalid results');
+                    placeCache.set(query, places);
+                }
+                if (version !== placeSearchVersion) return;
+                status.textContent = places.length ? 'เลือกสถานที่จากรายการเพื่อปักหมุด' : 'ไม่พบสถานที่ ลองเพิ่มชื่ออำเภอหรือจังหวัด หรือเลือกบนแผนที่';
+                for (const place of places) {
+                    const lat = Number(place.lat), lng = Number(place.lon);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat)>90 || Math.abs(lng)>180) continue;
+                    const name = /^[\x20-\x7E]+$/.test(place.display_name || '') ? place.display_name.slice(0,500) : query;
+                    const button = document.createElement('button');
+                    button.type = 'button'; button.textContent = name;
+                    button.className = 'block w-full text-left border rounded-lg p-2 text-xs bg-white hover:bg-emerald-50';
+                    button.addEventListener('click', () => {
+                        const location = {lat,lng,name};
+                        if (target === 'pickup') state.pickup = location; else state.destination = location;
+                        clearPlaceSearch(); drawMarkers(); updateUI();
+                        state.map.setView([lat,lng],15);
+                        status.textContent = 'เลือกสถานที่แล้ว';
+                    });
+                    document.getElementById('place-results').appendChild(button);
+                }
+            } catch {
+                if (version === placeSearchVersion) status.textContent = 'ค้นหาไม่สำเร็จ กรุณาลองใหม่ หรือเลือกจุดบนแผนที่';
+            }
+        }
+
         function recenterMap() {
             if (state.map) state.map.setView([TNC_HQ.lat, TNC_HQ.lng], 13);
         }
 
         function selectShift(shift) {
+            clearPlaceSearch();
+            document.getElementById('place-target').value = shift === 'morning' ? 'pickup' : 'dest';
             state.currentShift = shift;
             const mTab = document.getElementById('tab-morning');
             const eTab = document.getElementById('tab-evening');
