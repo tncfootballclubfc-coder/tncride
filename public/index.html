@@ -545,6 +545,33 @@
             renderPassengerDriverRides();
         }
 
+        const joiningRides = new Set();
+        function rideParticipation(ride) {
+            const passengers = Array.isArray(ride.passengers) ? ride.passengers : [];
+            const capacity = Number(ride.maxSeats || 1);
+            const booked = Math.max(passengers.length, Number(ride.bookedSeats || 0));
+            const available = Math.max(0, capacity - booked);
+            const owner = !!state.user && String(ride.userId) === String(state.user.id);
+            const joined = !!state.user && passengers.some(p => String(p.id) === String(state.user.id));
+            return {passengers, capacity, booked, available, owner, joined};
+        }
+        function passengerSummary(ride) {
+            const p = rideParticipation(ride);
+            return `<div class="text-xs text-slate-600 space-y-1"><p>ที่นั่งผู้โดยสาร: ${p.booked}/${p.capacity} คน • ว่าง ${p.available} ที่</p><p class="break-words">👥 ผู้ร่วมเดินทาง: ${p.passengers.length ? p.passengers.map(person => escapeHtml(person.name)).join(', ') : 'ยังไม่มีผู้ร่วมเดินทาง'}</p></div>`;
+        }
+        function joinRideButton(ride) {
+            const p = rideParticipation(ride);
+            let label = '';
+            if (p.owner) label = 'คุณเป็นผู้ขับรถเที่ยวนี้';
+            else if (p.joined) label = '✓ คุณเข้าร่วมเดินทางแล้ว';
+            else if (ride.status === 'Full' || p.available === 0) label = 'ที่นั่งเต็มแล้ว';
+            else if (ride.status !== 'Pending') label = 'ปิดรับผู้ร่วมเดินทางแล้ว';
+            else if (joiningRides.has(String(ride.id))) label = 'กำลังบันทึก…';
+            else if (!state.user) label = 'กรุณาเข้าสู่ระบบ';
+            if (label) return `<button disabled class="w-full bg-slate-100 text-slate-600 py-2 rounded-xl">${label}</button>`;
+            return `<button onclick="requestJoinRide(${Number(ride.id)})" class="w-full btn-gradient text-white font-bold py-2.5 rounded-xl">ไปด้วย • ว่าง ${p.available} ที่</button>`;
+        }
+
         function renderPassengerDriverRides() {
             const container = document.getElementById('passenger-driver-rides-list');
             if (!container) return;
@@ -576,14 +603,7 @@
                 let seatBadge = `<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">ว่าง ${availableSeats}/${maxSeats} ที่</span>`;
                 if (isFull) seatBadge = `<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-700 border border-rose-200">เต็มแล้ว (Full)</span>`;
 
-                let actionBtnHTML = '';
-                if (isJoined) {
-                    actionBtnHTML = `<button disabled class="w-full bg-emerald-50 text-emerald-700 font-bold py-2.5 rounded-xl border border-emerald-200 text-xs flex items-center justify-center gap-1">✓ ท่านลงชื่อขอติดรถในคันนี้แล้ว</button>`;
-                } else if (isFull) {
-                    actionBtnHTML = `<button disabled class="w-full bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl text-xs cursor-not-allowed border border-slate-200">❌ ที่นั่งเต็มแล้ว</button>`;
-                } else {
-                    actionBtnHTML = `<button onclick="requestJoinRide(${ride.id})" class="w-full btn-gradient text-white font-extrabold py-2.5 rounded-xl text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5"><i data-lucide="user-plus" class="w-4 h-4"></i> ขอร่วมเดินทางไปด้วย (${availableSeats} ที่ว่าง)</button>`;
-                }
+                const actionBtnHTML = joinRideButton(ride);
 
                 card.innerHTML = `
                     <div class="flex justify-between items-center">
@@ -595,7 +615,7 @@
                         <p class="truncate">📍 จุดรับ: <span class="font-bold text-slate-800">${escapeHtml(ride.pickup?.name || '-')}</span></p>
                         <p class="truncate">🏁 จุดส่ง: <span class="font-bold text-slate-800">${escapeHtml(ride.dest?.name || '-')}</span></p>
                     </div>
-                    ${passengers.length > 0 ? `<div class="text-[10px] text-slate-500 font-medium">👥 ผู้ร่วมเดินทางแล้ว (${passengers.length} คน): <span class="font-bold text-slate-700">${escapeHtml(passengers.map(p => p.name).join(', '))}</span></div>` : ''}
+                    ${passengerSummary(ride)}
                     ${actionBtnHTML}
                 `;
                 container.appendChild(card);
@@ -604,12 +624,24 @@
         }
 
         async function requestJoinRide(rideId) {
-            if (!state.user) return;
-            const result = await apiWrite('joinRide', { rideId, passenger: state.user });
-            if (!result.success) { showToast(result.message, 'error'); return; }
-            await fetchRidesFromDatabase();
-            renderRidesList();
-            showToast('ขอร่วมเดินทางเรียบร้อย', 'success');
+            const key = String(rideId);
+            if (!state.user || joiningRides.has(key)) return;
+            const ride = state.ridesDb.find(r => String(r.id) === key);
+            if (!ride) return;
+            const p = rideParticipation(ride);
+            if (p.owner || p.joined || p.available === 0 || ride.status !== 'Pending') return;
+            joiningRides.add(key);
+            renderRidesList(); renderPassengerDriverRides();
+            try {
+                const result = await apiWrite('joinRide', {rideId});
+                await fetchRidesFromDatabase();
+                showToast(result.success ? 'ลงชื่อร่วมเดินทางเรียบร้อย' : result.message, result.success ? 'success' : 'error');
+            } catch {
+                showToast('เชื่อมต่อไม่สำเร็จ กรุณาโหลดรายการใหม่เพื่อตรวจสอบการจอง', 'error');
+            } finally {
+                joiningRides.delete(key);
+                renderRidesList(); renderPassengerDriverRides(); updateNotificationBadge();
+            }
         }
 
         function isConfigured() { return true; }
@@ -981,7 +1013,7 @@
                 const item = document.createElement('div');
                 item.className = "p-3.5 rounded-2xl border text-xs space-y-2.5 transition-all bg-white border-emerald-100 shadow-md";
                 
-                const isDriver = state.user && (String(ride.userId) === String(state.user.id) || ride.driver === state.user.name || ride.userName === state.user.name);
+                const isDriver = rideParticipation(ride).owner;
 
                 let actionHTML = '';
                 if (isDriver) {
@@ -991,7 +1023,7 @@
                         actionHTML = `<button onclick="updateRideStatus(${ride.id}, 'Complete')" class="w-full btn-gradient text-white py-2 rounded-xl font-bold">✓ เสร็จสิ้นภารกิจ</button>`;
                     }
                 } else {
-                    actionHTML = `<div class="w-full text-center text-slate-500 py-1 bg-slate-100 rounded-xl">สถานะ: ${escapeHtml(ride.status)}</div>`;
+                    actionHTML = joinRideButton(ride);
                 }
 
                 item.innerHTML = `
@@ -1003,6 +1035,7 @@
                         <p class="truncate">📍 รับ: ${escapeHtml(ride.pickup?.name || '-')}</p>
                         <p class="truncate">🏁 ส่ง: ${escapeHtml(ride.dest?.name || '-')}</p>
                     </div>
+                    ${passengerSummary(ride)}
                     ${actionHTML}
                 `;
                 listContainer.appendChild(item);
@@ -1060,6 +1093,7 @@
                         <span class="text-emerald-700">✓ สำเร็จ</span>
                     </div>
                     <p class="truncate">📍 ${escapeHtml(ride.pickup?.name || '-')} ➔ 🏁 ${escapeHtml(ride.dest?.name || '-')}</p>
+                    ${passengerSummary(ride)}
                 `;
                 container.appendChild(item);
             });
