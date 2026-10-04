@@ -923,6 +923,10 @@
             updateUI();
         }
 
+        function calculateCarbon(distance) {
+            const displayedKm = Number(Number(distance).toFixed(1));
+            return ((displayedKm / 12) * 2.7076).toFixed(2);
+        }
         function calculateDistance(lat1, lon1, lat2, lon2) {
             return L.latLng(lat1, lon1).distanceTo(L.latLng(lat2, lon2)) / 1000;
         }
@@ -943,7 +947,7 @@
                 state.map.fitBounds(state.markers.route.getBounds(), { padding: [60, 60], maxZoom: 15 });
                 const dist = calculateDistance(state.pickup.lat, state.pickup.lng, state.destination.lat, state.destination.lng);
                 document.getElementById('info-dist').innerText = dist.toFixed(1);
-                document.getElementById('info-co2').innerText = (dist * 0.21).toFixed(2);
+                document.getElementById('info-co2').innerText = calculateCarbon(dist);
             }
         }
 
@@ -953,7 +957,7 @@
             const bookBtn = document.getElementById('book-btn');
             const routeInfo = document.getElementById('route-info');
             if (state.pickup && state.destination) {
-                bookBtn.disabled = false;
+                bookBtn.disabled = bookingInProgress;
                 routeInfo.classList.remove('hidden');
             } else {
                 bookBtn.disabled = true;
@@ -962,41 +966,38 @@
         }
 
         // ======= BOOKING =======
-        function handleBooking() {
-            document.getElementById('status-modal').classList.remove('hidden');
-            state.bookingSimTimeout = setTimeout(async () => {
-                document.getElementById('status-modal').classList.add('hidden');
-                const driver = state.user.name;
-                const dist = calculateDistance(state.pickup.lat, state.pickup.lng, state.destination.lat, state.destination.lng);
-                const newRide = {
-                    id: Date.now(),
-                    userId: state.user.id,
-                    userName: state.user.name,
-                    userPhone: state.user.phone,
-                    shift: state.currentShift,
-                    date: new Date().toLocaleString('th-TH'),
-                    driver: driver,
-                    pickup: state.pickup,
-                    dest: state.destination,
-                    status: 'Pending',
-                    distance: dist.toFixed(1),
-                    co2: (dist * 0.21).toFixed(2),
-                    maxSeats: state.maxSeats || 1
-                };
+        let bookingInProgress = false;
+        async function handleBooking() {
+            if (bookingInProgress) return;
+            if (!state.user || !state.pickup || !state.destination) {
+                showToast('กรุณาเข้าสู่ระบบและเลือกจุดรับ–ส่งให้ครบ', 'error'); return;
+            }
+            const dist = calculateDistance(state.pickup.lat,state.pickup.lng,state.destination.lat,state.destination.lng);
+            const newRide = {
+                id: Date.now(), userId:state.user.id, userName:state.user.name,
+                userPhone:state.user.phone, shift:state.currentShift,
+                driver:state.user.name, pickup:{...state.pickup}, dest:{...state.destination},
+                distance:dist.toFixed(1), co2:calculateCarbon(dist), maxSeats:state.maxSeats || 1
+            };
+            const button = document.getElementById('book-btn');
+            const originalLabel = button.innerHTML;
+            bookingInProgress = true;
+            button.disabled = true;
+            button.textContent = 'กำลังบันทึกประกาศ…';
+            try {
                 if (!await createRide(newRide)) return;
-                updateNotificationBadge();
-                showToast(`จองสำเร็จ! (${state.maxSeats || 1} ที่นั่ง) คนขับ: ${driver}`, 'success');
-                setTimeout(() => {
-                    selectShift(state.currentShift);
-                    if (state.map) state.map.setView([TNC_HQ.lat, TNC_HQ.lng], 13);
-                }, 2000);
-            }, 2500);
+                showToast('บันทึกประกาศเปิดรับผู้โดยสารแล้ว', 'success');
+                selectShift(state.currentShift);
+            } catch {
+                showToast('ยังยืนยันการบันทึกไม่ได้ กรุณาตรวจรายการก่อนลองใหม่', 'error');
+            } finally {
+                bookingInProgress = false;
+                button.innerHTML = originalLabel;
+                updateUI();
+            }
         }
-
         function cancelBooking() {
-            clearTimeout(state.bookingSimTimeout);
             document.getElementById('status-modal').classList.add('hidden');
-            showToast('ยกเลิกการจองแล้ว', 'error');
         }
 
         function collapseBottomPanel() {
