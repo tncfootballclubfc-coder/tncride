@@ -396,7 +396,7 @@
                                     <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">จุดรับ (Pickup)</label>
                                     <input type="text" id="pickup-input" maxlength="500" autocomplete="off"
                                         class="w-full bg-slate-50/90 border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                                        placeholder="เลือกจุดรับบนแผนที่"><button type="button" onclick="searchAddress('pickup')" class="mt-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs">ค้นหาจุดรับ</button>
+                                        placeholder="เลือกจุดรับบนแผนที่"><button type="button" id="search-pickup" onclick="searchAddress('pickup')" class="mt-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs">ค้นหาจุดรับ</button>
                                 </div>
                             </div>
 
@@ -409,7 +409,7 @@
                                     <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">จุดส่ง (Destination)</label>
                                     <input type="text" id="dest-input" maxlength="500" autocomplete="off"
                                         class="w-full bg-slate-50/90 border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none cursor-pointer placeholder-slate-400"
-                                        placeholder="เลือกจุดส่งบนแผนที่"><button type="button" onclick="searchAddress('dest')" class="mt-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs">ค้นหาจุดส่ง</button>
+                                        placeholder="เลือกจุดส่งบนแผนที่"><button type="button" id="search-dest" onclick="searchAddress('dest')" class="mt-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs">ค้นหาจุดส่ง</button>
                                 </div>
                             </div>
 
@@ -887,6 +887,18 @@
             }
         }
 
+        function editableLocationTarget() { return state.currentShift === 'evening' ? 'dest' : 'pickup'; }
+        function lockWorkplace() {
+            const editable = editableLocationTarget();
+            for (const target of ['pickup','dest']) {
+                const locked = target !== editable;
+                const input = document.getElementById(target+'-input');
+                input.readOnly = locked;
+                input.setAttribute('aria-readonly',String(locked));
+                document.getElementById('search-'+target).hidden = locked;
+            }
+            document.getElementById('address-status').textContent = editable === 'pickup' ? 'จุดส่งล็อกเป็นบริษัท ค้นหาหรือเลือกจุดรับบนแผนที่' : 'จุดรับล็อกเป็นบริษัท ค้นหาหรือเลือกจุดส่งบนแผนที่';
+        }
         let addressTarget = 'pickup';
         let addressVersion = 0;
         let addressLastRequest = 0;
@@ -897,8 +909,9 @@
         }
         for (const target of ['pickup','dest']) {
             const input=document.getElementById(target+'-input');
-            input.addEventListener('focus',()=>{addressTarget=target;clearAddressResults();});
+            input.addEventListener('focus',()=>{if(target!==editableLocationTarget())return;addressTarget=target;clearAddressResults();});
             input.addEventListener('input',()=>{
+                if(target!==editableLocationTarget())return;
                 clearAddressResults();
                 if(target==='pickup')state.pickup=null;else state.destination=null;
                 document.getElementById('book-btn').disabled=true;
@@ -908,6 +921,7 @@
             input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();searchAddress(target);}});
         }
         async function searchAddress(target) {
+            if(target!==editableLocationTarget())return;
             addressTarget=target;clearAddressResults();
             const version=addressVersion;
             const query=document.getElementById(target+'-input').value.trim();
@@ -936,6 +950,7 @@
                     const name=String(result.display_name||query).slice(0,500);
                     button.textContent=name;button.className='block w-full text-left text-xs border rounded-lg p-2 bg-white';
                     button.addEventListener('click',()=>{
+                        if(version!==addressVersion || target!==editableLocationTarget())return;
                         const point={lat,lng,name};
                         if(target==='pickup')state.pickup=point;else state.destination=point;
                         clearAddressResults();drawMarkers();updateUI();
@@ -965,13 +980,14 @@
                 state.destination = null;
                 showToast('กะเย็น: จิ้มแผนที่ระบุจุดส่ง (บ้านของคุณ)', 'info');
             }
+            lockWorkplace();
             if (state.markers.route && state.map) state.map.removeLayer(state.markers.route);
             updateUI();
             drawMarkers();
         }
 
         async function setMapLocation(lat, lng) {
-            clearAddressResults(); const version=addressVersion; const target=addressTarget;
+            clearAddressResults(); const version=addressVersion; const target=editableLocationTarget();
             let locName = `พิกัด (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
             try {
                 const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=th`);
