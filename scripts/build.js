@@ -1,3 +1,3 @@
-import { mkdirSync, copyFileSync } from 'node:fs';
+import { mkdirSync, cpSync } from 'node:fs';
 mkdirSync('dist', {recursive:true});
-copyFileSync('public/index.html','dist/index.html');
+cpSync('public','dist',{recursive:true});
