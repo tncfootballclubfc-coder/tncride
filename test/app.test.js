@@ -41,3 +41,13 @@ test('notification lets another member join and shows passengers/full state',()=
  assert.match(items.at(-1).innerHTML,/Passenger/);assert.match(items.at(-1).innerHTML,/เต็มแล้ว/);assert.doesNotMatch(items.at(-1).innerHTML,/onclick="requestJoinRide/);
  ctx.state.user.id=30;vm.runInContext('renderRidesList()',ctx);assert.match(items.at(-1).innerHTML,/คุณเข้าร่วมเดินทางแล้ว/);
 });
+
+test('Thai address search waits for selection before changing pickup',async()=>{
+ const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');const nodes={};
+ const node=id=>nodes[id]??=( {value:'บางนา',children:[],addEventListener(){},replaceChildren(){this.children=[];},appendChild(x){this.children.push(x);}} );
+ const state={pickup:null,map:{setView(){}}};
+ const ctx=vm.createContext({state,URLSearchParams,AbortSignal,setTimeout,document:{getElementById:node,createElement:()=>({addEventListener(k,fn){this[k]=fn;}})},drawMarkers(){},updateUI(){},fetch:async()=>({ok:true,json:async()=>[{lat:'13.6',lon:'100.6',display_name:'บางนา กรุงเทพมหานคร'}]})});
+ vm.runInContext(html.slice(html.indexOf('        let addressTarget'),html.indexOf('        function selectShift(')),ctx);
+ await vm.runInContext("searchAddress('pickup')",ctx);assert.equal(state.pickup,null);
+ node('address-results').children[0].click();assert.equal(state.pickup.name,'บางนา กรุงเทพมหานคร');assert.equal(state.pickup.lat,13.6);
+});
