@@ -30,3 +30,14 @@ test('pickup date uses Thailand day and tomorrow across month boundary',()=>{
  assert.match(vm.runInContext("pickupDateLabel({pickupDate:'2026-10-05'})",ctx),/05\/10\/2026/);
  assert.match(vm.runInContext('pickupDateLabel({})',ctx),/ไม่ระบุ/);
 });
+
+test('notification lets another member join and shows passengers/full state',()=>{
+ const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8'); const items=[];
+ const ride={id:1,userId:10,userName:'Driver',status:'Pending',maxSeats:1,passengers:[]};
+ const ctx=vm.createContext({state:{user:{id:20},ridesDb:[ride]},joining:new Set(),escapeHtml:String,pickupDateLabel:()=>'',lucide:{createIcons(){}},document:{createElement:()=>({}),getElementById:id=>id==='ride-requests-list'?{innerHTML:'',appendChild:x=>items.push(x)}:{classList:{add(){},remove(){}}}}});
+ vm.runInContext(html.slice(html.indexOf('        function renderRidesList()'),html.indexOf('        async function updateRideStatus(')),ctx);
+ vm.runInContext('renderRidesList()',ctx);assert.match(items.at(-1).innerHTML,/requestJoinRide\(1\)/);
+ ride.passengers=[{id:30,name:'Passenger'}];ride.status='Full';vm.runInContext('renderRidesList()',ctx);
+ assert.match(items.at(-1).innerHTML,/Passenger/);assert.match(items.at(-1).innerHTML,/เต็มแล้ว/);assert.doesNotMatch(items.at(-1).innerHTML,/onclick="requestJoinRide/);
+ ctx.state.user.id=30;vm.runInContext('renderRidesList()',ctx);assert.match(items.at(-1).innerHTML,/คุณเข้าร่วมเดินทางแล้ว/);
+});

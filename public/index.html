@@ -657,11 +657,12 @@
         async function requestJoinRide(rideId) {
             if (!state.user || joining.has(rideId)) return;
             joining.add(rideId);
+            renderRidesList();
             try {
                 const result = await apiWrite('joinRide',{rideId});
                 await fetchRidesFromSheet();
                 showToast(result.success ? 'ลงชื่อร่วมเดินทางสำเร็จ' : result.message, result.success ? 'success' : 'error');
-            } finally { joining.delete(rideId); }
+            } finally { joining.delete(rideId); renderRidesList(); renderPassengerDriverRides(); }
         }
         function isConfigured() { return true; }
         function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1103,11 +1104,18 @@
                         actionButtonsHTML = `<button onclick="updateRideStatus(${ride.id}, 'Complete')" class="w-full btn-gradient text-white py-2.5 rounded-xl font-bold transition-all shadow-sm flex items-center justify-center gap-1.5"><i data-lucide="check-circle-2" class="w-4 h-4"></i> ✓ เสร็จสิ้นภารกิจการเดินทาง</button>`;
                     }
                 } else {
-                    // ผู้อาศัย / บุคคลอื่น: แสดงสถานะเท่านั้น ไม่สามารถกดปุ่มเริ่ม/เสร็จสิ้นการเดินทางได้
-                    if (ride.status === 'Pending' || ride.status === 'Full') {
-                        actionButtonsHTML = `<div class="w-full text-center text-slate-500 font-semibold py-2 bg-slate-100 rounded-xl text-[11px] border border-slate-200">⏳ รอผู้อาสา (${escapeHtml(ride.driver || ride.userName)}) กดเริ่มเดินทาง</div>`;
-                    } else if (ride.status === 'In-Progress') {
-                        actionButtonsHTML = `<div class="w-full text-center text-blue-700 font-bold py-2 bg-blue-50 rounded-xl text-[11px] border border-blue-100 flex items-center justify-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span> 🚗 ผู้อาสากำลังนำส่งถึงจุดหมาย...</div>`;
+                    const joined = passengers.some(p => String(p.id) === String(state.user?.id));
+                    const remaining = Math.max(0, Number(ride.maxSeats || 1) - Math.max(passengers.length, Number(ride.bookedSeats || 0)));
+                    if (joined) {
+                        actionButtonsHTML = '<button disabled class="w-full bg-emerald-50 text-emerald-700 py-2.5 rounded-xl font-bold">✓ คุณเข้าร่วมเดินทางแล้ว</button>';
+                    } else if (remaining === 0 || ride.status === 'Full') {
+                        actionButtonsHTML = '<button disabled class="w-full bg-slate-100 text-slate-500 py-2.5 rounded-xl">เต็มแล้ว</button>';
+                    } else if (ride.status !== 'Pending') {
+                        actionButtonsHTML = '<button disabled class="w-full bg-slate-100 text-slate-500 py-2.5 rounded-xl">ปิดรับผู้ร่วมเดินทางแล้ว</button>';
+                    } else if (joining.has(ride.id)) {
+                        actionButtonsHTML = '<button disabled class="w-full bg-slate-100 py-2.5 rounded-xl">กำลังบันทึก…</button>';
+                    } else {
+                        actionButtonsHTML = `<button onclick="requestJoinRide(${Number(ride.id)})" class="w-full btn-gradient text-white py-2.5 rounded-xl font-bold">ไปด้วย • ว่าง ${remaining} ที่</button>`;
                     }
                 }
 
@@ -1121,7 +1129,7 @@
                         <p class="truncate">🏁 ส่ง: <span class="text-slate-800">${escapeHtml(destName)}</span></p>
                         <p>👥 ที่นั่ง: <span class="font-bold text-emerald-700">${ride.bookedSeats || passengers.length || 0}/${ride.maxSeats || 1} คน</span></p>
                         <p>🚗 คนขับ: <span class="text-slate-800">${ride.driver || '-'}</span></p>
-                        ${passengers.length > 0 ? `<p class="text-[10px] text-blue-600 font-semibold">ผู้ติดรถ: ${passengers.map(p => escapeHtml(p.name)).join(', ')}</p>` : ''}
+                        <p class="text-xs text-blue-600 font-semibold break-words">ผู้ร่วมเดินทาง: ${passengers.length ? passengers.map(p => escapeHtml(p.name)).join(', ') : 'ยังไม่มีผู้ร่วมเดินทาง'}</p>
                         <p class="text-[10px] text-slate-400 font-normal pt-0.5">${escapeHtml(pickupDateLabel(ride))}</p>
                     </div>
                     <div class="pt-1">
