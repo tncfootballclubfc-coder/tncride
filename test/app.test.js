@@ -47,7 +47,26 @@ test('Thai address search waits for selection before changing pickup',async()=>{
  const node=id=>nodes[id]??=( {value:'บางนา',children:[],addEventListener(){},replaceChildren(){this.children=[];},appendChild(x){this.children.push(x);}} );
  const state={pickup:null,map:{setView(){}}};
  const ctx=vm.createContext({state,URLSearchParams,AbortSignal,setTimeout,document:{getElementById:node,createElement:()=>({addEventListener(k,fn){this[k]=fn;}})},drawMarkers(){},updateUI(){},fetch:async()=>({ok:true,json:async()=>[{lat:'13.6',lon:'100.6',display_name:'บางนา กรุงเทพมหานคร'}]})});
- vm.runInContext(html.slice(html.indexOf('        let addressTarget'),html.indexOf('        function selectShift(')),ctx);
+ vm.runInContext(html.slice(html.indexOf('        function editableLocationTarget'),html.indexOf('        function selectShift(')),ctx);
  await vm.runInContext("searchAddress('pickup')",ctx);assert.equal(state.pickup,null);
  node('address-results').children[0].click();assert.equal(state.pickup.name,'บางนา กรุงเทพมหานคร');assert.equal(state.pickup.lat,13.6);
+});
+
+test('workplace stays locked for search and map selection in both shifts',async()=>{
+ const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');const nodes={};
+ const node=id=>nodes[id]??={setAttribute(){},addEventListener(){},replaceChildren(){}};
+ const office={lat:12.6507,lng:101.3198,name:'Office'};
+ const state={currentShift:'morning',markers:{},map:{}};let requests=0;
+ const ctx=vm.createContext({state,TNC_HQ:office,document:{getElementById:node},showToast(){},updateUI(){},drawMarkers(){},fetch:async()=>{requests++;return {json:async()=>({})};}});
+ vm.runInContext(html.slice(html.indexOf('        function editableLocationTarget'),html.indexOf('        function calculateCarbon(')),ctx);
+ for(const shift of ['morning','evening']){
+  vm.runInContext(`selectShift('${shift}')`,ctx);
+  const locked=shift==='morning'?'dest':'pickup';const editable=shift==='morning'?'pickup':'dest';
+  assert.equal(node(locked+'-input').readOnly,true);assert.equal(node('search-'+locked).hidden,true);
+  assert.equal(node(editable+'-input').readOnly,false);assert.equal(node('search-'+editable).hidden,false);
+  const before=requests;await vm.runInContext(`searchAddress('${locked}')`,ctx);assert.equal(requests,before);
+  await vm.runInContext('setMapLocation(13,100)',ctx);
+  assert.equal((shift==='morning'?state.destination:state.pickup).lat,office.lat);
+  assert.equal((shift==='morning'?state.pickup:state.destination).lat,13);
+ }
 });

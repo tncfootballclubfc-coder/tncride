@@ -32,6 +32,13 @@ export default async function handler(req,res){
   }else{
    actor=member(req,secret);
    if(!actor)return res.status(401).json({success:false,message:'Please sign in with your phone number.'});
+   if(action==='createRide') {
+    if(!['morning','evening'].includes(p.shift))return res.status(400).json({success:false,message:'กรุณาเลือกกะเช้าหรือกะเย็น'});
+    const workplace={lat:12.6507,lng:101.3198,name:'บริษัท ไนเตรทไทย จำกัด (สำนักงาน)'};
+    const fixed=p.shift==='morning'?p.dest:p.pickup;
+    if(!fixed||fixed.lat!==workplace.lat||fixed.lng!==workplace.lng)return res.status(400).json({success:false,message:'จุดบริษัทต้องเป็นตำแหน่งที่กำหนด กรุณาเลือกกะใหม่'});
+    p[p.shift==='morning'?'dest':'pickup']=workplace;
+   }
    if(action==='createRide')for(const point of [p.pickup,p.dest])if(!point||typeof point.name!=='string'||!/^[\x20-\x7E\u0E00-\u0E7F]{1,500}$/u.test(point.name))return res.status(400).json({success:false,message:'กรุณาใช้ชื่อสถานที่ภาษาไทยหรืออังกฤษ'});
   }
   const headers={apikey:key,'Content-Type':'application/json'};
