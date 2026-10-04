@@ -14,10 +14,19 @@ test('carbon uses displayed one-decimal distance, not raw map distance',()=>{
 
 test('booking writes only on click and blocks duplicate clicks while saving',async()=>{
  const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');let writes=0,release;
- const pending=new Promise(resolve=>{release=resolve;});const button={innerHTML:'ประกาศ',disabled:false};
- const ctx=vm.createContext({state:{user:{id:1,name:'Test'},pickup:{lat:1,lng:1},destination:{lat:2,lng:2},maxSeats:2,currentShift:'morning'},document:{getElementById:()=>button},calculateDistance:()=>6.9,calculateCarbon:()=> '1.56',createRide:async ride=>{writes++;assert.equal(ride.distance,'6.9');assert.equal(ride.co2,'1.56');await pending;return true;},showToast(){},selectShift(){},updateUI(){}});
+ const pending=new Promise(resolve=>{release=resolve;});const button={innerHTML:'ประกาศ',disabled:false,value:'2099-01-01',checkValidity:()=>true};
+ const ctx=vm.createContext({state:{user:{id:1,name:'Test'},pickup:{lat:1,lng:1},destination:{lat:2,lng:2},maxSeats:2,currentShift:'morning'},document:{getElementById:()=>button},initRideDate(){},bangkokDate:()=>'2026-10-04',calculateDistance:()=>6.9,calculateCarbon:()=> '1.56',createRide:async ride=>{writes++;assert.equal(ride.distance,'6.9');assert.equal(ride.co2,'1.56');await pending;return true;},showToast(){},selectShift(){},updateUI(){}});
  vm.runInContext(html.slice(html.indexOf('        let bookingInProgress'),html.indexOf('        function collapseBottomPanel')),ctx);
  assert.equal(writes,0);const first=vm.runInContext('handleBooking()',ctx);assert.equal(writes,1);
  await vm.runInContext('handleBooking()',ctx);assert.equal(writes,1);assert.equal(button.disabled,true);
  release();await first;
+});
+
+test('pickup date uses Thailand day and tomorrow across month boundary',()=>{
+ const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');const ctx=vm.createContext({});
+ vm.runInContext(html.slice(html.indexOf('        function bangkokDate('),html.indexOf('        let bookingInProgress')),ctx);
+ assert.equal(vm.runInContext("bangkokDate(0,new Date('2026-10-03T18:00:00Z'))",ctx),'2026-10-04');
+ assert.equal(vm.runInContext("bangkokDate(1,new Date('2026-10-31T10:00:00Z'))",ctx),'2026-11-01');
+ assert.match(vm.runInContext("pickupDateLabel({pickupDate:'2026-10-05'})",ctx),/05\/10\/2026/);
+ assert.match(vm.runInContext('pickupDateLabel({})',ctx),/ไม่ระบุ/);
 });

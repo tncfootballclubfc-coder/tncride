@@ -429,6 +429,9 @@
                         </div>
 
                         <!-- Dynamic Route Stats -->
+                        <label for="ride-date" class="block text-xs font-semibold text-slate-700">วันที่รับผู้โดยสาร</label>
+                        <input id="ride-date" type="date" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white">
+                        <p class="text-[10px] text-slate-500">เลือกวันนี้หรือวันถัดไปได้ (เวลาไทย) ค่าเริ่มต้นเป็นวันพรุ่งนี้</p>
                         <div id="route-info" class="hidden flex gap-2.5 pt-1">
                             <div class="flex-1 bg-blue-50/90 rounded-xl p-2.5 text-center border border-blue-100 shadow-sm">
                                 <p class="text-[10px] text-blue-600 font-bold uppercase tracking-wider">ระยะทาง</p>
@@ -628,7 +631,7 @@
 
                     <div class="bg-slate-50 p-2.5 rounded-xl space-y-1 text-slate-700 text-[11px] font-medium border border-slate-100">
                         <div class="flex items-center gap-1.5 text-slate-500 font-bold mb-1">
-                            <span>${shiftText}</span> • <span class="text-slate-400">${escapeHtml(ride.date || '')}</span>
+                            <span>${shiftText}</span> • <span class="text-slate-400">${escapeHtml(pickupDateLabel(ride))}</span>
                         </div>
                         <p class="truncate">📍 จุดรับ: <span class="font-bold text-slate-800">${escapeHtml(pickupName)}</span></p>
                         <p class="truncate">🏁 จุดส่ง: <span class="font-bold text-slate-800">${escapeHtml(destName)}</span></p>
@@ -966,15 +969,34 @@
         }
 
         // ======= BOOKING =======
+        function bangkokDate(offset=0, now=new Date()) {
+            const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+            const get=type=>parts.find(p=>p.type===type).value;
+            const date=new Date(`${get('year')}-${get('month')}-${get('day')}T00:00:00Z`);
+            date.setUTCDate(date.getUTCDate()+offset);
+            return date.toISOString().slice(0,10);
+        }
+        function initRideDate() {
+            const input=document.getElementById('ride-date');
+            input.min=bangkokDate();
+            if(!input.value) input.value=bangkokDate(1);
+        }
+        function pickupDateLabel(ride) {
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(ride.pickupDate || '')) return 'รายการเดิม: ไม่ระบุวันรับ';
+            const [y,m,d]=ride.pickupDate.split('-');return `วันที่รับ: ${d}/${m}/${y}`;
+        }
         let bookingInProgress = false;
         async function handleBooking() {
             if (bookingInProgress) return;
             if (!state.user || !state.pickup || !state.destination) {
                 showToast('กรุณาเข้าสู่ระบบและเลือกจุดรับ–ส่งให้ครบ', 'error'); return;
             }
+            initRideDate();
+            const pickupDate=document.getElementById('ride-date').value;
+            if(!document.getElementById('ride-date').checkValidity() || pickupDate < bangkokDate()){showToast('เลือกวันที่รับตั้งแต่วันนี้เป็นต้นไป','error');return;}
             const dist = calculateDistance(state.pickup.lat,state.pickup.lng,state.destination.lat,state.destination.lng);
             const newRide = {
-                id: Date.now(), userId:state.user.id, userName:state.user.name,
+                id: Date.now(), pickupDate, userId:state.user.id, userName:state.user.name,
                 userPhone:state.user.phone, shift:state.currentShift,
                 driver:state.user.name, pickup:{...state.pickup}, dest:{...state.destination},
                 distance:dist.toFixed(1), co2:calculateCarbon(dist), maxSeats:state.maxSeats || 1
@@ -1100,7 +1122,7 @@
                         <p>👥 ที่นั่ง: <span class="font-bold text-emerald-700">${ride.bookedSeats || passengers.length || 0}/${ride.maxSeats || 1} คน</span></p>
                         <p>🚗 คนขับ: <span class="text-slate-800">${ride.driver || '-'}</span></p>
                         ${passengers.length > 0 ? `<p class="text-[10px] text-blue-600 font-semibold">ผู้ติดรถ: ${passengers.map(p => escapeHtml(p.name)).join(', ')}</p>` : ''}
-                        <p class="text-[10px] text-slate-400 font-normal pt-0.5">${escapeHtml(ride.date || '')}</p>
+                        <p class="text-[10px] text-slate-400 font-normal pt-0.5">${escapeHtml(pickupDateLabel(ride))}</p>
                     </div>
                     <div class="pt-1">
                         ${actionButtonsHTML}
@@ -1238,7 +1260,7 @@
 
                     <div class="text-[10px] text-slate-400 flex justify-between items-center pt-0.5">
                         <span>รหัสเดินทาง #${ride.id}</span>
-                        <span>วันที่: ${escapeHtml(ride.date || '')}</span>
+                        <span>วันที่: ${escapeHtml(pickupDateLabel(ride))}</span>
                     </div>
                 `;
 
@@ -1261,6 +1283,7 @@
 
         // ======= INIT =======
         window.onload = async () => {
+            initRideDate();
             const session = await apiWrite("me");
             state.user = session.success ? session.data : null;
             checkAuth();
